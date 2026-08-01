@@ -11,11 +11,25 @@
 #define TAG "HopperCfg"
 #define SETTING_USER_PATH "/ext/subghz/assets/setting_user"
 
+// Views
+typedef enum {
+    HopperConfigViewMain,
+    HopperConfigViewCount,
+} HopperConfigView;
+
+// Scenes
+typedef enum {
+    HopperConfigSceneMain,
+    HopperConfigSceneCount,
+} HopperConfigScene;
+
+// Item types
 typedef enum {
     ItemTypeHopperFreq,
     ItemTypeHopperPreset,
 } ItemType;
 
+// Data for each toggleable item
 typedef struct {
     union {
         uint32_t freq;
@@ -25,6 +39,7 @@ typedef struct {
     ItemType type;
 } HopperItem;
 
+// App state
 typedef struct {
     ViewDispatcher* view_dispatcher;
     SceneManager* scene_manager;
@@ -35,11 +50,13 @@ typedef struct {
     bool modified;
 } HopperConfigApp;
 
+// Forward declarations
 static void hopper_scene_main_on_enter(void* context);
 static bool hopper_scene_main_on_event(void* context, SceneManagerEvent event);
 static void hopper_scene_main_on_exit(void* context);
 static void hopper_item_changed(VariableItem* item);
 
+// Scene handlers
 void (*const scene_on_enter_handlers[])(void*) = {hopper_scene_main_on_enter};
 bool (*const scene_on_event_handlers[])(void*, SceneManagerEvent) = {hopper_scene_main_on_event};
 void (*const scene_on_exit_handlers[])(void*) = {hopper_scene_main_on_exit};
@@ -48,9 +65,10 @@ static const SceneManagerHandlers scene_handlers = {
     .on_enter_handlers = scene_on_enter_handlers,
     .on_event_handlers = scene_on_event_handlers,
     .on_exit_handlers = scene_on_exit_handlers,
-    .scene_num = 1,
+    .scene_num = HopperConfigSceneCount,
 };
 
+// Helper: safe string dup
 static char* hopper_strdup(const char* str) {
     if(!str) return NULL;
     size_t len = strlen(str);
@@ -60,6 +78,7 @@ static char* hopper_strdup(const char* str) {
     return copy;
 }
 
+// Add a frequency item
 static void hopper_add_item(HopperConfigApp* app, uint32_t freq, bool enabled) {
     if(app->item_count >= app->item_capacity) {
         app->item_capacity = app->item_capacity ? app->item_capacity * 2 : 32;
@@ -73,6 +92,7 @@ static void hopper_add_item(HopperConfigApp* app, uint32_t freq, bool enabled) {
     item->type = ItemTypeHopperFreq;
 }
 
+// Add a preset item
 static void hopper_add_preset(HopperConfigApp* app, const char* preset_name, bool enabled) {
     if(app->item_count >= app->item_capacity) {
         app->item_capacity = app->item_capacity ? app->item_capacity * 2 : 32;
@@ -86,6 +106,7 @@ static void hopper_add_preset(HopperConfigApp* app, const char* preset_name, boo
     item->type = ItemTypeHopperPreset;
 }
 
+// Clear all items
 static void hopper_clear_items(HopperConfigApp* app) {
     for(uint16_t i = 0; i < app->item_count; i++) {
         if(app->items[i].type == ItemTypeHopperPreset) {
@@ -99,6 +120,7 @@ static void hopper_clear_items(HopperConfigApp* app) {
     app->modified = false;
 }
 
+// Load settings from FFF file
 static void hopper_load_file(HopperConfigApp* app) {
     hopper_clear_items(app);
     Storage* storage = furi_record_open(RECORD_STORAGE);
@@ -106,58 +128,82 @@ static void hopper_load_file(HopperConfigApp* app) {
     FuriString* temp_str = furi_string_alloc();
     uint32_t temp_uint32;
 
+    FURI_LOG_I(TAG, "Loading: %s", SETTING_USER_PATH);
+
     if(flipper_format_file_open_existing(fff, SETTING_USER_PATH)) {
         if(flipper_format_read_header(fff, temp_str, &temp_uint32)) {
             const char* type = furi_string_get_cstr(temp_str);
             if(strcmp(type, "Flipper SubGhz Setting File") == 0 && temp_uint32 == 1) {
+                FURI_LOG_I(TAG, "Valid FFF file");
+                
                 if(flipper_format_rewind(fff)) {
                     while(flipper_format_read_uint32(fff, "Hopper_frequency", &temp_uint32, 1)) {
+                        FURI_LOG_I(TAG, "Found hopper freq: %lu", temp_uint32);
                         hopper_add_item(app, temp_uint32, true);
                     }
                 }
+                
                 if(flipper_format_rewind(fff)) {
                     furi_string_reset(temp_str);
                     while(flipper_format_read_string(fff, "Hopping_Preset", temp_str)) {
-                        hopper_add_preset(app, furi_string_get_cstr(temp_str), true);
+                        const char* preset = furi_string_get_cstr(temp_str);
+                        FURI_LOG_I(TAG, "Found hopping preset: %s", preset);
+                        hopper_add_preset(app, preset, true);
                     }
                 }
             }
         }
         flipper_format_file_close(fff);
+    } else {
+        FURI_LOG_W(TAG, "File not found: %s", SETTING_USER_PATH);
     }
+    
     furi_string_free(temp_str);
     flipper_format_free(fff);
     furi_record_close(RECORD_STORAGE);
+    
+    FURI_LOG_I(TAG, "Loaded %d items", app->item_count);
 }
 
+// Save settings to FFF file
 static void hopper_save_file(HopperConfigApp* app) {
     if(!app->modified) return;
     Storage* storage = furi_record_open(RECORD_STORAGE);
     FlipperFormat* fff = flipper_format_file_alloc(storage);
     FuriString* temp_str = furi_string_alloc();
 
+    FURI_LOG_I(TAG, "Saving to: %s", SETTING_USER_PATH);
+
     if(flipper_format_file_open_new(fff, SETTING_USER_PATH)) {
         furi_string_set_str(temp_str, "Flipper SubGhz Setting File");
         flipper_format_write_header(fff, temp_str, 1);
+        
         for(uint16_t i = 0; i < app->item_count; i++) {
             if(app->items[i].type == ItemTypeHopperFreq && app->items[i].enabled) {
                 flipper_format_write_uint32(fff, "Hopper_frequency", &app->items[i].value.freq, 1);
             }
         }
+        
         for(uint16_t i = 0; i < app->item_count; i++) {
             if(app->items[i].type == ItemTypeHopperPreset && app->items[i].enabled) {
                 furi_string_set_str(temp_str, app->items[i].value.preset_name);
                 flipper_format_write_string(fff, "Hopping_Preset", temp_str);
             }
         }
+        
         flipper_format_file_close(fff);
+        FURI_LOG_I(TAG, "Saved successfully");
+    } else {
+        FURI_LOG_E(TAG, "Failed to open file for writing");
     }
+    
     furi_string_free(temp_str);
     flipper_format_free(fff);
     furi_record_close(RECORD_STORAGE);
     app->modified = false;
 }
 
+// UI: Item toggle callback
 static void hopper_item_changed(VariableItem* item) {
     HopperConfigApp* app = variable_item_get_context(item);
     uint8_t idx = variable_item_list_get_selected_item_index(app->variable_item_list);
@@ -168,10 +214,12 @@ static void hopper_item_changed(VariableItem* item) {
     variable_item_set_current_value_text(item, app->items[idx].enabled ? "ON" : "OFF");
 }
 
+// Navigation callback
 static bool hopper_navigation_callback(void* context) {
     return scene_manager_handle_back_event(((HopperConfigApp*)context)->scene_manager);
 }
 
+// Scene: Main - populate UI
 static void hopper_scene_main_on_enter(void* context) {
     HopperConfigApp* app = context;
     hopper_load_file(app);
@@ -213,7 +261,7 @@ static void hopper_scene_main_on_enter(void* context) {
         VariableItem* item = variable_item_list_add(app->variable_item_list, "No hopper items", 1, NULL, app);
         variable_item_set_current_value_text(item, "File not found or empty");
     }
-    view_dispatcher_switch_to_view(app->view_dispatcher, 0);
+    view_dispatcher_switch_to_view(app->view_dispatcher, HopperConfigViewMain);
 }
 
 static bool hopper_scene_main_on_event(void* context, SceneManagerEvent event) {
@@ -229,6 +277,7 @@ static void hopper_scene_main_on_exit(void* context) {
     hopper_clear_items(app);
 }
 
+// App allocation
 static HopperConfigApp* hopper_app_alloc() {
     HopperConfigApp* app = malloc(sizeof(HopperConfigApp));
     memset(app, 0, sizeof(HopperConfigApp));
@@ -238,16 +287,17 @@ static HopperConfigApp* hopper_app_alloc() {
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
     view_dispatcher_set_navigation_event_callback(app->view_dispatcher, hopper_navigation_callback);
     app->variable_item_list = variable_item_list_alloc();
-    view_dispatcher_add_view(app->view_dispatcher, 0, variable_item_list_get_view(app->variable_item_list));
+    view_dispatcher_add_view(app->view_dispatcher, HopperConfigViewMain, variable_item_list_get_view(app->variable_item_list));
     Gui* gui = furi_record_open(RECORD_GUI);
     view_dispatcher_attach_to_gui(app->view_dispatcher, gui, ViewDispatcherTypeFullscreen);
-    scene_manager_next_scene(app->scene_manager, 0);
+    scene_manager_next_scene(app->scene_manager, HopperConfigSceneMain);
     return app;
 }
 
+// App cleanup
 static void hopper_app_free(HopperConfigApp* app) {
     scene_manager_stop(app->scene_manager);
-    view_dispatcher_remove_view(app->view_dispatcher, 0);
+    view_dispatcher_remove_view(app->view_dispatcher, HopperConfigViewMain);
     variable_item_list_free(app->variable_item_list);
     scene_manager_free(app->scene_manager);
     view_dispatcher_free(app->view_dispatcher);
@@ -256,6 +306,7 @@ static void hopper_app_free(HopperConfigApp* app) {
     furi_record_close(RECORD_GUI);
 }
 
+// Entry point
 int32_t subghz_config_editor_app(void* p) {
     UNUSED(p);
     HopperConfigApp* app = hopper_app_alloc();
