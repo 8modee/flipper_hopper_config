@@ -7,7 +7,6 @@ App(
     requires=[
         "gui",
         "storage",
-        "flipper_format",
     ],
     stack_size=2 * 1024,
     fap_category="SubGHz",
