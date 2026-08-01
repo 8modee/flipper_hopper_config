@@ -1,0 +1,4 @@
+# Create icon.png from base64
+base64 -d > icon.png << 'EOF'
+iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNkYPhfz0AEYBxVSF+FAP5FDvcfRYWgAAAAAElFTkSuQmCC
+EOF
