@@ -1,12 +1,13 @@
 App(
     appid="subghz_config_editor",
-    name="SubGHz Config Editor",
+    name="Hopper Config Editor",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="subghz_config_editor_app",
     cdefines=["APP_SUBGHZ_CONFIG_EDITOR"],
     requires=[
         "gui",
         "storage",
+        "flipper_format",
     ],
     stack_size=2 * 1024,
     fap_category="SubGHz",
